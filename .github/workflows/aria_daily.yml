@@ -1,0 +1,88 @@
+name: ARIA Daily Pipeline
+
+on:
+  schedule:
+    # Runs at 13:00 UTC (6:30 PM IST) every day
+    - cron: '0 13 * * *'
+  workflow_dispatch: # Allows you to run it manually from the Actions tab
+
+permissions:
+  contents: write # Required to push the updated database and HTML report back to the repo
+  pages: write    # Required to deploy the HTML report to GitHub Pages
+  id-token: write # Required for GitHub Pages
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Important for committing back to the repo
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run ARIA Pipeline
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          # We don't necessarily need Gemini if you're using Groq for Analyst, 
+          # but we map it just in case:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          NOTIFY_MODE: 'True'
+        run: |
+          # The script will output HTML to /reports/ and update DB in /memory/
+          python main.py
+
+      - name: Commit Updated Database and Reports
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # Add the database and reports
+          git add memory/chroma_db/
+          git add reports/
+          
+          # Only commit if there are changes
+          if git diff-index --quiet HEAD; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore(auto): Update ChromaDB memory and daily HTML dashboard [skip ci]"
+            git push
+          fi
+
+      - name: Setup GitHub Pages Deployment
+        # Move the latest HTML report to an index.html file so it serves cleanly at your root URL
+        run: |
+          mkdir -p public
+          # Find the newest HTML file in reports and copy it to public/index.html
+          LATEST_HTML=$(ls -t reports/*.html | head -n1)
+          cp "$LATEST_HTML" public/index.html
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public/
+
+  deploy-pages:
+    needs: run-pipeline
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

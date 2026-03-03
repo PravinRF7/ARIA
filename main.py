@@ -171,7 +171,8 @@ def print_report(items: list[dict], source_counts: dict):
 
 from agents.collector import run_collector
 from agents.historian import run_historian
-from agents.analyst import run_analyst, save_report
+from agents.analyst import run_analyst
+from output.html_dashboard import generate_html_dashboard
 from output.router import dispatch
 from config import NOTIFY_MODE
 
@@ -223,10 +224,10 @@ async def run_pipeline():
     contextualized_items = await run_historian(scored_items)
 
     # 4. Run Analyst Agent
-    report_markdown = await run_analyst(contextualized_items)
+    _ = await run_analyst(contextualized_items)
 
-    # 5. Save Report
-    saved_path = save_report(report_markdown)
+    # 5. Save HTML Dashboard
+    saved_path = generate_html_dashboard(contextualized_items)
 
     # 6. Dispatch Notifications
     should_notify = NOTIFY_MODE and not TEST_MODE
