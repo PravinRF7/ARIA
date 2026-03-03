@@ -73,6 +73,9 @@ jobs:
               --head "$BRANCH_NAME" \
               --title "📡 ARIA Daily Radar Update: $(date +'%Y-%m-%d')" \
               --body "This PR contains the automated daily run for ARIA. It updates the ChromaDB memory and generates the new HTML dashboard for GitHub Pages."
+              
+            # Enable auto-merge for the newly created PR
+            gh pr merge "$BRANCH_NAME" --auto --merge
           fi
 
       - name: Setup GitHub Pages Deployment
