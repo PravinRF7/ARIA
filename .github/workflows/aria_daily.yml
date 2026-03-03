@@ -42,6 +42,52 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           NOTIFY_MODE: 'True'
         run: |
+      - name: Debug Fetchers
+        env:
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+        run: |
+          python -c "
+          import asyncio
+          from fetchers.hackernews import fetch_hackernews
+          from fetchers.github_trending import fetch_github_trending
+          from fetchers.arxiv import fetch_arxiv
+          from fetchers.aws_blog import fetch_aws_blog
+          from fetchers.tavily_search import fetch_tavily
+          
+          async def test():
+              print('Testing HN...')
+              try: await asyncio.wait_for(fetch_hackernews(), timeout=20)
+              except Exception as e: print(f'HN failed/timeout: {e}')
+              
+              print('Testing GH...')
+              try: await asyncio.wait_for(fetch_github_trending(), timeout=20)
+              except Exception as e: print(f'GH failed/timeout: {e}')
+              
+              print('Testing ArXiv...')
+              try: await asyncio.wait_for(fetch_arxiv(), timeout=20)
+              except Exception as e: print(f'ArXiv failed/timeout: {e}')
+              
+              print('Testing AWS...')
+              try: await asyncio.wait_for(fetch_aws_blog(), timeout=20)
+              except Exception as e: print(f'AWS failed/timeout: {e}')
+              
+              print('Testing Tavily...')
+              try: await asyncio.wait_for(fetch_tavily(), timeout=20)
+              except Exception as e: print(f'Tavily failed/timeout: {e}')
+              
+              print('All fetch tests done.')
+              
+          asyncio.run(test())
+          "
+
+      - name: Run ARIA Pipeline
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          NOTIFY_MODE: 'True'
+        run: |
           # The script will output HTML to /reports/ and update DB in /memory/
           python main.py
 
