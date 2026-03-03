@@ -46,20 +46,33 @@ jobs:
           python main.py
 
       - name: Commit Updated Database and Reports
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # Create a new daily branch
+          BRANCH_NAME="auto-update-$(date +'%Y-%m-%d')"
+          git checkout -b "$BRANCH_NAME"
           
           # Add the database and reports
           git add memory/chroma_db/
           git add reports/
           
-          # Only commit if there are changes
+          # Only commit/PR if there are changes
           if git diff-index --quiet HEAD; then
             echo "No changes to commit"
           else
-            git commit -m "chore(auto): Update ChromaDB memory and daily HTML dashboard [skip ci]"
-            git push
+            git commit -m "chore(auto): Update ChromaDB memory and daily HTML dashboard"
+            git push origin "$BRANCH_NAME"
+            
+            # Create a Pull Request against the 'quality' branch
+            gh pr create \
+              --base quality \
+              --head "$BRANCH_NAME" \
+              --title "📡 ARIA Daily Radar Update: $(date +'%Y-%m-%d')" \
+              --body "This PR contains the automated daily run for ARIA. It updates the ChromaDB memory and generates the new HTML dashboard for GitHub Pages."
           fi
 
       - name: Setup GitHub Pages Deployment
