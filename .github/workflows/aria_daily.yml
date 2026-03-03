@@ -7,9 +7,10 @@ on:
   workflow_dispatch: # Allows you to run it manually from the Actions tab
 
 permissions:
-  contents: write # Required to push the updated database and HTML report back to the repo
-  pages: write    # Required to deploy the HTML report to GitHub Pages
-  id-token: write # Required for GitHub Pages
+  contents: write      # Required to push the updated database and HTML report back to the repo
+  pages: write         # Required to deploy the HTML report to GitHub Pages
+  id-token: write      # Required for GitHub Pages
+  pull-requests: write # Required for the 'gh pr' command to create and merge PRs
 
 jobs:
   run-pipeline:
