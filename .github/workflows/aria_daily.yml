@@ -99,8 +99,8 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          # Create a new daily branch
-          BRANCH_NAME="auto-update-$(date +'%Y-%m-%d')"
+          # Create a new daily branch with a unique run ID to prevent push conflicts
+          BRANCH_NAME="auto-update-$(date +'%Y-%m-%d')-${{ github.run_id }}"
           git checkout -b "$BRANCH_NAME"
           
           # Add the database and reports
@@ -112,7 +112,8 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "chore(auto): Update ChromaDB memory and daily HTML dashboard"
-            git push origin "$BRANCH_NAME"
+            # Force push just in case, though the branch name is now unique
+            git push -f origin "$BRANCH_NAME"
             
             # Create a Pull Request against the 'quality' branch
             gh pr create \
