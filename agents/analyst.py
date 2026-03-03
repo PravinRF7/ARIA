@@ -42,6 +42,7 @@ async def _call_with_backoff(
     """Call Groq with exponential backoff. Returns response text or None."""
     for attempt in range(max_retries):
         try:
+            print(f"      [LLM] Generating Analysis... (Attempt {attempt + 1}/{max_retries})")
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None,
@@ -55,6 +56,7 @@ async def _call_with_backoff(
                     max_tokens=1000
                 ),
             )
+            print(f"      [LLM] Analysis generated successfully.")
             return response.choices[0].message.content.strip()
         except Exception as e:
             err_str = str(e)

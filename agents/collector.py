@@ -44,10 +44,12 @@ async def _call_with_backoff(
     """Call Groq with exponential backoff. Returns response text or None."""
     for attempt in range(max_retries):
         try:
+            print(f"      [DEBUG] Preparing to call Groq (Attempt {attempt+1}/{max_retries})")
             # Run the sync chat.completions.create in a thread pool
             loop = asyncio.get_event_loop()
             
             def make_call():
+                print("      [DEBUG] Inside thread executor, initiating HTTP request...")
                 return client.chat.completions.create(
                     model=COLLECTOR_MODEL,
                     messages=[
