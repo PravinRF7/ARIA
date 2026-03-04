@@ -20,6 +20,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: quality
           fetch-depth: 0 # Important for committing back to the repo
 
       - name: Set up Python
