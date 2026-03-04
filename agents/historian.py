@@ -47,6 +47,7 @@ async def _call_vllm_backoff(client, prompt: str, max_retries: int = 3) -> str:
     """Call Groq specifically for the Historian comparison."""
     for attempt in range(max_retries):
         try:
+            print(f"      [LLM] Analyzing historical context... (Attempt {attempt + 1}/{max_retries})")
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None,
@@ -60,6 +61,7 @@ async def _call_vllm_backoff(client, prompt: str, max_retries: int = 3) -> str:
                     max_tokens=300,
                 ),
             )
+            print(f"      [LLM] Context generated successfully.")
             return response.choices[0].message.content.strip()
         except Exception as e:
             wait = (2 ** attempt) + 1.0

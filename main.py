@@ -214,20 +214,28 @@ async def run_pipeline():
         return
 
     # 2. Run Collector Agent
+    print(f"    [DEBUG MAIN] Starting run_collector with {len(deduped)} items...")
     scored_items = await run_collector(deduped)
+    print(f"    [DEBUG MAIN] Finished run_collector. Returned {len(scored_items)} items.")
 
     if not scored_items:
         print(f"  {C.YELLOW}⚠ No items passed the Collector's relevance filter.{C.END}")
         return
 
     # 3. Run Historian Agent
+    print(f"    [DEBUG MAIN] Starting run_historian with {len(scored_items)} items...")
     contextualized_items = await run_historian(scored_items)
+    print(f"    [DEBUG MAIN] Finished run_historian.")
 
     # 4. Run Analyst Agent
+    print(f"    [DEBUG MAIN] Starting run_analyst...")
     _ = await run_analyst(contextualized_items)
+    print(f"    [DEBUG MAIN] Finished run_analyst.")
 
     # 5. Save HTML Dashboard
+    print(f"    [DEBUG MAIN] Generating HTML Dashboard...")
     saved_path = generate_html_dashboard(contextualized_items)
+    print(f"    [DEBUG MAIN] HTML Dashboard saved to {saved_path}")
 
     # 6. Dispatch Notifications
     should_notify = NOTIFY_MODE and not TEST_MODE

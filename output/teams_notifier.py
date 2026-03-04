@@ -103,8 +103,20 @@ def _build_payload(items: list[dict], date_str: str, report_path: str) -> dict:
         "themeColor": "0076D7",
         "summary": f"ARIA Radar — {date_str} — {len(top3)} high-impact items",
         "title": f"🛰️ ARIA Daily Radar — {date_str}",
-        "text": f"{len(items)} items analyzed · {len(top3)} high-impact · Report: `{report_name}`",
+        "text": f"**{len(items)} items analyzed** · {len(top3)} high-impact threshold alerts.",
         "sections": sections,
+        "potentialAction": [
+            {
+                "@type": "OpenUri",
+                "name": "View Full Dashboard",
+                "targets": [
+                    {
+                        "os": "default",
+                        "uri": "https://pravinrf7.github.io/ARIA/"
+                    }
+                ]
+            }
+        ]
     }
 
 

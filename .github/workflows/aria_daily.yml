@@ -2,14 +2,15 @@ name: ARIA Daily Pipeline
 
 on:
   schedule:
-    # Runs at 13:00 UTC (6:30 PM IST) every day
-    - cron: '0 13 * * *'
+    # Runs at 01:00 UTC (6:30 AM IST) every day
+    - cron: '0 1 * * *'
   workflow_dispatch: # Allows you to run it manually from the Actions tab
 
 permissions:
-  contents: write # Required to push the updated database and HTML report back to the repo
-  pages: write    # Required to deploy the HTML report to GitHub Pages
-  id-token: write # Required for GitHub Pages
+  contents: write      # Required to push the updated database and HTML report back to the repo
+  pages: write         # Required to deploy the HTML report to GitHub Pages
+  id-token: write      # Required for GitHub Pages
+  pull-requests: write # Required for the 'gh pr' command to create and merge PRs
 
 jobs:
   run-pipeline:
@@ -19,6 +20,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: quality
           fetch-depth: 0 # Important for committing back to the repo
 
       - name: Set up Python
@@ -42,24 +44,87 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           NOTIFY_MODE: 'True'
         run: |
+      - name: Debug Fetchers
+        env:
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+        run: |
+          python -c "
+          import asyncio
+          from fetchers.hackernews import fetch_hackernews
+          from fetchers.github_trending import fetch_github_trending
+          from fetchers.arxiv import fetch_arxiv
+          from fetchers.aws_blog import fetch_aws_blog
+          from fetchers.tavily_search import fetch_tavily
+          
+          async def test():
+              print('Testing HN...')
+              try: await asyncio.wait_for(fetch_hackernews(), timeout=20)
+              except Exception as e: print(f'HN failed/timeout: {e}')
+              
+              print('Testing GH...')
+              try: await asyncio.wait_for(fetch_github_trending(), timeout=20)
+              except Exception as e: print(f'GH failed/timeout: {e}')
+              
+              print('Testing ArXiv...')
+              try: await asyncio.wait_for(fetch_arxiv(), timeout=20)
+              except Exception as e: print(f'ArXiv failed/timeout: {e}')
+              
+              print('Testing AWS...')
+              try: await asyncio.wait_for(fetch_aws_blog(), timeout=20)
+              except Exception as e: print(f'AWS failed/timeout: {e}')
+              
+              print('Testing Tavily...')
+              try: await asyncio.wait_for(fetch_tavily(), timeout=20)
+              except Exception as e: print(f'Tavily failed/timeout: {e}')
+              
+              print('All fetch tests done.')
+              
+          asyncio.run(test())
+          "
+
+      - name: Run ARIA Pipeline
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          NOTIFY_MODE: 'True'
+        run: |
           # The script will output HTML to /reports/ and update DB in /memory/
           python main.py
 
       - name: Commit Updated Database and Reports
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # Create a new daily branch with a unique run ID to prevent push conflicts
+          BRANCH_NAME="auto-update-$(date +'%Y-%m-%d')-${{ github.run_id }}"
+          git checkout -b "$BRANCH_NAME"
           
           # Add the database and reports
           git add memory/chroma_db/
           git add reports/
           
-          # Only commit if there are changes
+          # Only commit/PR if there are changes
           if git diff-index --quiet HEAD; then
             echo "No changes to commit"
           else
-            git commit -m "chore(auto): Update ChromaDB memory and daily HTML dashboard [skip ci]"
-            git push
+            git commit -m "chore(auto): Update ChromaDB memory and daily HTML dashboard"
+            # Force push just in case, though the branch name is now unique
+            git push -f origin "$BRANCH_NAME"
+            
+            # Create a Pull Request against the 'quality' branch
+            gh pr create \
+              --base quality \
+              --head "$BRANCH_NAME" \
+              --title "📡 ARIA Daily Radar Update: $(date +'%Y-%m-%d')" \
+              --body "This PR contains the automated daily run for ARIA. It updates the ChromaDB memory and generates the new HTML dashboard for GitHub Pages."
+              
+            # Enable auto-merge for the newly created PR
+            gh pr merge "$BRANCH_NAME" --auto --merge
           fi
 
       - name: Setup GitHub Pages Deployment

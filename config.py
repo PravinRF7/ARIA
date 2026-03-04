@@ -28,14 +28,14 @@ HISTORIAN_MODEL = "llama-3.1-8b-instant"
 ANALYST_MODEL = "llama-3.3-70b-versatile"
 
 # ── Collector Config ─────────────────────────────────
-COLLECTOR_BATCH_SIZE = 10      # items per LLM batch
-COLLECTOR_BATCH_DELAY = 2.0    # seconds between batches
+COLLECTOR_BATCH_SIZE = 10      # evaluate 10 items in a single LLM prompt
+COLLECTOR_BATCH_DELAY = 1.0    # 1 second delay avoids the 30 RPM limit comfortably
 COLLECTOR_MIN_SCORE = 7        # only items ≥ 7 pass through
 COLLECTOR_MAX_ITEMS = 20       # cap on items going to analyst
 
 COLLECTOR_SYSTEM_PROMPT = (
-    "You are a technical relevance scorer. Given a news item or repository, "
-    "score it 1-10 based on: (1) Is this genuinely new, not trivial? "
+    "You are a technical relevance scorer. You will be given a JSON array of up to 10 news items. "
+    "For EACH item, score it 1-10 based on: (1) Is this genuinely new, not trivial? "
     "(2) Does it represent a meaningful shift in capability or approach? "
     "(3) Is it from a credible source with measurable engagement? "
     "HARD RULE: Any item about politics, military, sports, entertainment, finance, "
@@ -43,8 +43,9 @@ COLLECTOR_SYSTEM_PROMPT = (
     "ARIA covers ONLY: AI models, machine learning, cloud infrastructure, developer "
     "tools, and open source software. "
     "Score 7+ only for items a senior AI/cloud engineer would stop scrolling for. "
-    "Return ONLY valid JSON: {\"score\": <int>, \"domain_tags\": [<strings from: "
-    "AI_MODEL, AWS, DEV_TOOL, OPEN_SOURCE>], \"reason\": \"<one sentence max>\"}."
+    "Return ONLY valid JSON. The output MUST be a JSON array of objects IN THE EXACT SAME ORDER as the input. "
+    "Each object must have exactly: {\"index\": <int matching the input index>, \"score\": <int>, "
+    "\"domain_tags\": [<strings from: AI_MODEL, AWS, DEV_TOOL, OPEN_SOURCE>], \"reason\": \"<one sentence max>\"}."
 )
 
 HISTORIAN_SYSTEM_PROMPT = (
