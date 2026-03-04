@@ -34,6 +34,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Download Latest Database
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p memory/chroma_db
+          # Attempt to download the latest database from the 'latest-db' release.
+          # If it fails (e.g., first run), it will just continue with an empty DB.
+          gh release download latest-db -D memory/chroma_db -p "chroma.sqlite3" || echo "No existing database found, starting fresh."
+
       - name: Run ARIA Pipeline
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -93,7 +102,7 @@ jobs:
           # The script will output HTML to /reports/ and update DB in /memory/
           python main.py
 
-      - name: Commit Updated Database and Reports
+      - name: Commit Updated HTML Reports
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -104,15 +113,14 @@ jobs:
           BRANCH_NAME="auto-update-$(date +'%Y-%m-%d')-${{ github.run_id }}"
           git checkout -b "$BRANCH_NAME"
           
-          # Add the database and reports
-          git add memory/chroma_db/
+          # ONLY add the HTML reports to git now!
           git add reports/
           
           # Only commit/PR if there are changes
           if git diff-index --quiet HEAD; then
-            echo "No changes to commit"
+            echo "No report changes to commit"
           else
-            git commit -m "chore(auto): Update ChromaDB memory and daily HTML dashboard"
+            git commit -m "chore(auto): Update daily HTML dashboard"
             # Force push just in case, though the branch name is now unique
             git push -f origin "$BRANCH_NAME"
             
@@ -121,10 +129,24 @@ jobs:
               --base quality \
               --head "$BRANCH_NAME" \
               --title "📡 ARIA Daily Radar Update: $(date +'%Y-%m-%d')" \
-              --body "This PR contains the automated daily run for ARIA. It updates the ChromaDB memory and generates the new HTML dashboard for GitHub Pages."
+              --body "This PR contains the automated daily run for ARIA. It generates the new HTML dashboard for GitHub Pages."
               
             # Enable auto-merge for the newly created PR
             gh pr merge "$BRANCH_NAME" --auto --merge
+          fi
+
+      - name: Upload Database to GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Create or update the 'latest-db' release with the new chroma.sqlite3 file
+          # The --clobber flag allows it to overwrite the existing asset
+          if gh release view latest-db > /dev/null 2>&1; then
+            echo "Updating existing release asset..."
+            gh release upload latest-db memory/chroma_db/chroma.sqlite3 --clobber
+          else
+            echo "Creating 'latest-db' release and uploading asset..."
+            gh release create latest-db memory/chroma_db/chroma.sqlite3 --title "ARIA Persistent Database" --notes "Automated persistent storage for ChromaDB."
           fi
 
       - name: Setup GitHub Pages Deployment
