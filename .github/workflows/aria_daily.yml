@@ -131,8 +131,8 @@ jobs:
               --title "📡 ARIA Daily Radar Update: $(date +'%Y-%m-%d')" \
               --body "This PR contains the automated daily run for ARIA. It generates the new HTML dashboard for GitHub Pages."
               
-            # Try to enable auto-merge, or merge immediately if no required checks are pending
-            gh pr merge "$BRANCH_NAME" --auto --merge || gh pr merge "$BRANCH_NAME" --merge --delete-branch
+            # Try to enable auto-merge. If it fails (either clean or unconfigured), merge immediately
+            gh pr merge "$BRANCH_NAME" --auto --merge || gh pr merge "$BRANCH_NAME" --merge --delete-branch || true
           fi
 
       - name: Upload Database to GitHub Releases
