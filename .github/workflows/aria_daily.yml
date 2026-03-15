@@ -2,95 +2,57 @@ name: ARIA Daily Pipeline
 
 on:
   schedule:
-    # Runs at 01:00 UTC (6:30 AM IST) every day
-    - cron: '0 1 * * *'
-  workflow_dispatch: # Allows you to run it manually from the Actions tab
+    # Runs at 13:00 UTC (6:30 PM IST) every day
+    - cron: '0 13 * * *'
+  workflow_dispatch: # Allows manual trigger from the Actions tab
 
+# -----------------------------------------------------------------------
+# Permissions: all required scopes declared explicitly
+# - contents: write   → push commits and branches
+# - pull-requests: write → create and merge PRs
+# - pages: write      → deploy GitHub Pages
+# - id-token: write   → required for Pages OIDC auth
+# -----------------------------------------------------------------------
 permissions:
-  contents: write      # Required to push the updated database and HTML report back to the repo
-  pages: write         # Required to deploy the HTML report to GitHub Pages
-  id-token: write      # Required for GitHub Pages
-  pull-requests: write # Required for the 'gh pr' command to create and merge PRs
+  contents: write
+  pull-requests: write
+  pages: write
+  id-token: write
 
 jobs:
+
+  # ─────────────────────────────────────────────────────────────────────
+  # JOB 1: Run the ARIA pipeline and publish results via a PR
+  # ─────────────────────────────────────────────────────────────────────
   run-pipeline:
     runs-on: ubuntu-latest
+    # Expose the branch name to the deploy-pages job
+    outputs:
+      has_changes: ${{ steps.check_changes.outputs.has_changes }}
 
     steps:
+      # -----------------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: quality
-          fetch-depth: 0 # Important for committing back to the repo
+          fetch-depth: 0   # Full history needed for branch operations
 
+      # -----------------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
+      # -----------------------------------------------------------------
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Download Latest Database
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir -p memory/chroma_db
-          # Attempt to download the latest database from the 'latest-db' release.
-          # If it fails (e.g., first run), it will just continue with an empty DB.
-          gh release download latest-db -D memory/chroma_db -p "chroma.sqlite3" || echo "No existing database found, starting fresh."
-
-      - name: Run ARIA Pipeline
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
-          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
-          # We don't necessarily need Gemini if you're using Groq for Analyst, 
-          # but we map it just in case:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          NOTIFY_MODE: 'True'
-        run: |
-      - name: Debug Fetchers
-        env:
-          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
-        run: |
-          python -c "
-          import asyncio
-          from fetchers.hackernews import fetch_hackernews
-          from fetchers.github_trending import fetch_github_trending
-          from fetchers.arxiv import fetch_arxiv
-          from fetchers.aws_blog import fetch_aws_blog
-          from fetchers.tavily_search import fetch_tavily
-          
-          async def test():
-              print('Testing HN...')
-              try: await asyncio.wait_for(fetch_hackernews(), timeout=20)
-              except Exception as e: print(f'HN failed/timeout: {e}')
-              
-              print('Testing GH...')
-              try: await asyncio.wait_for(fetch_github_trending(), timeout=20)
-              except Exception as e: print(f'GH failed/timeout: {e}')
-              
-              print('Testing ArXiv...')
-              try: await asyncio.wait_for(fetch_arxiv(), timeout=20)
-              except Exception as e: print(f'ArXiv failed/timeout: {e}')
-              
-              print('Testing AWS...')
-              try: await asyncio.wait_for(fetch_aws_blog(), timeout=20)
-              except Exception as e: print(f'AWS failed/timeout: {e}')
-              
-              print('Testing Tavily...')
-              try: await asyncio.wait_for(fetch_tavily(), timeout=20)
-              except Exception as e: print(f'Tavily failed/timeout: {e}')
-              
-              print('All fetch tests done.')
-              
-          asyncio.run(test())
-          "
-
+      # -----------------------------------------------------------------
+      # Run the pipeline. Each API key is validated before the script
+      # runs so the step fails fast with a clear error if a secret is missing.
       - name: Run ARIA Pipeline
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -99,76 +61,90 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           NOTIFY_MODE: 'True'
         run: |
-          # The script will output HTML to /reports/ and update DB in /memory/
+          # Fast-fail if mandatory secrets are missing
+          if [ -z "$GROQ_API_KEY" ]; then
+            echo "::error::GROQ_API_KEY secret is not set. Aborting."
+            exit 1
+          fi
+          if [ -z "$TAVILY_API_KEY" ]; then
+            echo "::error::TAVILY_API_KEY secret is not set. Aborting."
+            exit 1
+          fi
           python main.py
 
-      - name: Commit Updated HTML Reports
+      # -----------------------------------------------------------------
+      # Create a uniquely-named branch, commit any changes, and open a PR
+      # against 'quality'. If there are no changes, skip gracefully.
+      - name: Commit and Open PR
+        id: check_changes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
-          # Create a new daily branch with a unique run ID to prevent push conflicts
-          BRANCH_NAME="auto-update-$(date +'%Y-%m-%d')-${{ github.run_id }}"
-          git checkout -b "$BRANCH_NAME"
-          
-          # ONLY add the HTML reports to git now!
-          git add reports/
-          
-          # Only commit/PR if there are changes
+
+          # Stage outputs
+          git add memory/chroma_db/ reports/ || true
+
+          # Check for staged changes
           if git diff-index --quiet HEAD; then
-            echo "No report changes to commit"
+            echo "No changes to commit — skipping PR creation."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
           else
-            git commit -m "chore(auto): Update daily HTML dashboard"
-            # Force push just in case, though the branch name is now unique
-            git push -f origin "$BRANCH_NAME"
-            
-            # Create a Pull Request against the 'quality' branch
+            # Unique branch name: date + run ID prevents collisions on re-runs
+            BRANCH_NAME="auto-update-$(date +'%Y-%m-%d')-${{ github.run_id }}"
+
+            git checkout -b "$BRANCH_NAME"
+            git commit -m "chore(auto): Update ChromaDB memory and daily HTML dashboard [skip ci]"
+
+            # Push the new branch
+            git push origin "$BRANCH_NAME"
+
+            # Create PR targeting 'quality'
             gh pr create \
               --base quality \
               --head "$BRANCH_NAME" \
               --title "📡 ARIA Daily Radar Update: $(date +'%Y-%m-%d')" \
-              --body "This PR contains the automated daily run for ARIA. It generates the new HTML dashboard for GitHub Pages."
-              
-            # Try to enable auto-merge. If it fails (either clean or unconfigured), merge immediately
-            gh pr merge "$BRANCH_NAME" --auto --merge || gh pr merge "$BRANCH_NAME" --merge --delete-branch || true
+              --body "Automated daily pipeline run. Updates ChromaDB memory and HTML dashboard for GitHub Pages."
+
+            # Merge immediately — no --auto flag (not needed without required checks)
+            # --delete-branch cleans up the daily branch after merge
+            gh pr merge "$BRANCH_NAME" --merge --delete-branch
+
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Upload Database to GitHub Releases
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Create or update the 'latest-db' release with the new chroma.sqlite3 file
-          # The --clobber flag allows it to overwrite the existing asset
-          if gh release view latest-db > /dev/null 2>&1; then
-            echo "Updating existing release asset..."
-            gh release upload latest-db memory/chroma_db/chroma.sqlite3 --clobber
-          else
-            echo "Creating 'latest-db' release and uploading asset..."
-            gh release create latest-db memory/chroma_db/chroma.sqlite3 --title "ARIA Persistent Database" --notes "Automated persistent storage for ChromaDB."
-          fi
-
-      - name: Setup GitHub Pages Deployment
-        # Move the latest HTML report to an index.html file so it serves cleanly at your root URL
+      # -----------------------------------------------------------------
+      # Always prepare the Pages artifact, even if no new report was generated.
+      # Falls back gracefully if the reports/ directory is empty.
+      - name: Setup GitHub Pages Artifact
         run: |
           mkdir -p public
-          # Find the newest HTML file in reports and copy it to public/index.html
-          LATEST_HTML=$(ls -t reports/*.html | head -n1)
-          cp "$LATEST_HTML" public/index.html
+          # Find the newest HTML report
+          LATEST_HTML=$(ls -t reports/*.html 2>/dev/null | head -n1)
+          if [ -z "$LATEST_HTML" ]; then
+            echo "::warning::No HTML reports found in reports/ — creating placeholder page."
+            echo "<html><body><h1>ARIA — No report available yet.</h1></body></html>" > public/index.html
+          else
+            cp "$LATEST_HTML" public/index.html
+            echo "Using report: $LATEST_HTML"
+          fi
 
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: public/
 
+  # ─────────────────────────────────────────────────────────────────────
+  # JOB 2: Deploy to GitHub Pages (runs even if no new changes were committed)
+  # ─────────────────────────────────────────────────────────────────────
   deploy-pages:
     needs: run-pipeline
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    
+
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
