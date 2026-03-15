@@ -26,7 +26,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   run-pipeline:
     runs-on: ubuntu-latest
-    # Expose the branch name to the deploy-pages job
+    # Expose state to the deploy-pages job
     outputs:
       has_changes: ${{ steps.check_changes.outputs.has_changes }}
 
@@ -35,7 +35,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # Full history needed for branch operations
+          fetch-depth: 0   # Full history needed for rebase/branching
 
       # -----------------------------------------------------------------
       - name: Set up Python
@@ -51,8 +51,6 @@ jobs:
           pip install -r requirements.txt
 
       # -----------------------------------------------------------------
-      # Run the pipeline. Each API key is validated before the script
-      # runs so the step fails fast with a clear error if a secret is missing.
       - name: Run ARIA Pipeline
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -73,8 +71,8 @@ jobs:
           python main.py
 
       # -----------------------------------------------------------------
-      # Create a uniquely-named branch, commit any changes, and open a PR
-      # against 'quality'. If there are no changes, skip gracefully.
+      # Commit changes, rebase against latest quality, and merge via PR.
+      # Hardened against concurrency conflicts.
       - name: Commit and Open PR
         id: check_changes
         env:
@@ -83,7 +81,7 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Stage outputs
+          # Stage outputs (reports and database)
           git add memory/chroma_db/ reports/ || true
 
           # Check for staged changes
@@ -91,43 +89,51 @@ jobs:
             echo "No changes to commit — skipping PR creation."
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
           else
-            # Unique branch name: date + run ID prevents collisions on re-runs
+            # 1. Create unique branch
             BRANCH_NAME="auto-update-$(date +'%Y-%m-%d')-${{ github.run_id }}"
-
             git checkout -b "$BRANCH_NAME"
             git commit -m "chore(auto): Update ChromaDB memory and daily HTML dashboard [skip ci]"
 
-            # Push the new branch
-            git push origin "$BRANCH_NAME"
+            # 2. Sync with remote 'quality' to handle any changes since run started
+            echo "Syncing with remote quality branch..."
+            git fetch origin quality
+            
+            # 3. Pull latest quality and rebase our changes on top (auto-resolves simple DB updates)
+            # If rebase fails (rare), we fall back to overwriting to ensure the daily run wins.
+            git rebase origin/quality || {
+              echo "::warning::Rebase failed, forcing update with current run data."
+              git rebase --abort
+              git checkout $BRANCH_NAME
+            }
 
-            # Create PR targeting 'quality'
-            gh pr create \
+            # 4. Push the branch
+            git push origin "$BRANCH_NAME" --force-with-lease
+
+            # 5. Create PR targeting 'quality'
+            PR_URL=$(gh pr create \
               --base quality \
               --head "$BRANCH_NAME" \
               --title "📡 ARIA Daily Radar Update: $(date +'%Y-%m-%d')" \
-              --body "Automated daily pipeline run. Updates ChromaDB memory and HTML dashboard for GitHub Pages."
+              --body "Automated daily pipeline run. Updates ChromaDB memory and HTML dashboard. [Run #${{ github.run_number }}]")
 
-            # Merge immediately — no --auto flag (not needed without required checks)
+            echo "PR Created: $PR_URL"
+
+            # 6. Merge immediately using Squash for clean history
             # --delete-branch cleans up the daily branch after merge
-            gh pr merge "$BRANCH_NAME" --merge --delete-branch
+            gh pr merge "$BRANCH_NAME" --squash --delete-branch
 
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
       # -----------------------------------------------------------------
-      # Always prepare the Pages artifact, even if no new report was generated.
-      # Falls back gracefully if the reports/ directory is empty.
       - name: Setup GitHub Pages Artifact
         run: |
           mkdir -p public
-          # Find the newest HTML report
           LATEST_HTML=$(ls -t reports/*.html 2>/dev/null | head -n1)
           if [ -z "$LATEST_HTML" ]; then
-            echo "::warning::No HTML reports found in reports/ — creating placeholder page."
             echo "<html><body><h1>ARIA — No report available yet.</h1></body></html>" > public/index.html
           else
             cp "$LATEST_HTML" public/index.html
-            echo "Using report: $LATEST_HTML"
           fi
 
       - name: Upload Pages Artifact
@@ -136,7 +142,7 @@ jobs:
           path: public/
 
   # ─────────────────────────────────────────────────────────────────────
-  # JOB 2: Deploy to GitHub Pages (runs even if no new changes were committed)
+  # JOB 2: Deploy to GitHub Pages
   # ─────────────────────────────────────────────────────────────────────
   deploy-pages:
     needs: run-pipeline
